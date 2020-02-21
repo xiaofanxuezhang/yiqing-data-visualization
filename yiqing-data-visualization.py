@@ -2,12 +2,11 @@ import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
 import plotly.offline as py
-from plotly.graph_objs import Scatter, Layout
+from plotly.graph_objs import *
 import plotly.graph_objs as go
 from datetime import datetime
 import numpy as np
 import math
-from plotly.graph_objs import *
 import geocoder
 import json
 from urllib.request import urlopen, quote
@@ -31,19 +30,6 @@ def get_data(url,path):
     with zipfile.ZipFile(zip_name, 'r') as zip:
         zip.extractall(path)
 
-def saved_ll_data(latitude,longitude,dict_name):
-    '''
-    :param latitude: 维度字典
-    :param longitude: 经度字典
-    :param dict_name: 经纬度组合字典
-    :return: 对经纬度数据进行保存
-    '''
-    dict_name[0] = latitude
-    dict_name[1] = longitude
-    ll_data = open(path + '/城市经纬度.txt', 'w')
-    ll_data.write(str(dict_name))
-    ll_data.close()
-
 def get_ll(data,path):
     '''
     :param data: 数据信息
@@ -62,28 +48,35 @@ def get_ll(data,path):
     url = 'http://api.map.baidu.com/geocoder/v2/'
     for ci in city_name:
         if not ci in latitude:
-            print(ci)
             try:
                 add = quote(ci)
                 uri = url + '?' + 'address=' + add + '&output=' + output + '&ak=' + ak  # 百度地理编码AP
                 req = urlopen(uri)
                 res = req.read().decode()
                 temp = json.loads(res)
-                # print(temp['result']['location']['lng'], temp['result']['location']['lat'])  # 打印出经纬度
-                lat = temp['result']['location']['lat']
-                lng = temp['result']['location']['lng']
-                latitude[ci] = lat
-                longitude[ci] = lng
-            except:
-                try:
+                if not bool(temp['status']):
+                    # print(temp['result']['location']['lng'], temp['result']['location']['lat'])  # 打印出经纬度
+                    lat = temp['result']['location']['lat']
+                    lng = temp['result']['location']['lng']
+                    latitude[ci] = lat
+                    longitude[ci] = lng
+                    continue
+                else:
                     g = geocoder.arcgis(ci)
-                    latitude[ci] = g.latlng[0]
-                    longitude[ci] = g.latlng[1]
-                except:
-                    saved_ll_data(latitude,longitude,dict_name)
+                    if g.latlng[0]:
+                        latitude[ci] = g.latlng[0]
+                        longitude[ci] = g.latlng[1]
+                    else:
+                        print('无{}经纬度信息'.format(ci))
+            except:
+                pass
+    dict_name[0] = latitude
+    dict_name[1] = longitude
+    ll_data = open(path + '/城市经纬度.txt', 'w')
+    ll_data.write(str(dict_name))
+    ll_data.close()
     data['latitude'] = data['城市'].apply(lambda x: latitude[x])
     data['longitude'] = data['城市'].apply(lambda x: longitude[x])
-    saved_ll_data(latitude,longitude,dict_name)
     return data
 
 
@@ -92,7 +85,7 @@ def data_processing(path):
     :param path: 数据路径
     :return:对数据进行补齐，去空，时间转化为序列，增加聚类标签（以log5 分级）
     '''
-    data = pd.read_csv(path + '/Novel-Coronavirus-Updates-master/Updates_NC.csv', encoding='utf-8')
+    data = pd.read_csv(path + '/Novel-Coronavirus-Updates-master/Updates_NC.csv', encoding='gbk')
     city_update = data[['省份', '城市']].fillna(method='ffill', axis=1)
     data['城市'] = city_update['城市']
     data.fillna(value=0.0, axis=1, inplace=True)
@@ -197,6 +190,10 @@ def mix_3d(data_new):
     rank_date = data_new['时间'].max()
     cities_rank_data = data_new.loc[(data_new['时间'] == rank_date) &
                                     (data_new['省份'] != '湖北') , ['城市','新增确诊']]
+    cities_rank_data = cities_rank_data.groupby('城市').sum()
+    cities_rank_data = pd.DataFrame({'城市':list(cities_rank_data.index),
+                                     '新增确诊':cities_rank_data.values.reshape(1,cities_rank_data.values.shape[0])[0]})
+    print(cities_rank_data)
     cities_rank_data.sort_values('新增确诊', ascending=False, na_position='first', inplace=True)
     cities_rank_data = cities_rank_data[0:10][:]
     print(cities_rank_data)
