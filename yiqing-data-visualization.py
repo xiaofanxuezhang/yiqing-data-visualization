@@ -107,19 +107,12 @@ def prvoience_Heatmap(data):
     :return: 以省份为单位绘出热力图
     '''
     provience_data = data.groupby(['时间', '省份']).聚类标签.max().reset_index()
-    provience = provience_data.sort_values('聚类标签', ascending=False, na_position='first', inplace=False)
-    provience = provience['省份'].unique()
-    provience_data.sort_values('时间', ascending=True, na_position='first', inplace=True)
-    pros_data = pd.DataFrame({'时间': data['时间'].unique()})
-    for i in provience:
-        date_data = provience_data.loc[(provience_data['省份'] == i), ['时间', '聚类标签']]
-        date_data.rename(columns={'聚类标签': i}, inplace=True)
-        pros_data = pd.merge(pros_data, date_data, on='时间', how='left')
+    pros_data = provience_data.pivot(index = '时间',values = '聚类标签',columns = '省份')
     pros_data.fillna(value=0, inplace=True, axis=1)
     trace = go.Heatmap(
-        z=pros_data.drop(['时间'], axis=1, inplace=False).values.tolist(),
-        y=pros_data['时间'],
-        x=pros_data.columns[1:],
+        z=pros_data.values.tolist(),
+        y=pros_data.index,
+        x=pros_data.columns,
         colorscale='Reds'
     )
     data3 = [trace]
@@ -138,21 +131,14 @@ def hubei_Heatmap(data_new):
     :return: 绘出湖北各个城市的热力图
     '''
     data_new.sort_values('聚类标签', ascending=True, inplace=True)
-    city_list = data_new.loc[data_new['省份'] == '湖北', ['城市']]
-    city_list = city_list['城市'].unique()
-    cities_data = data_new.groupby(['时间', '城市']).聚类标签.max().reset_index()
-    # print(cities_data)
-    data = pd.DataFrame({'时间': data_new['时间'].unique()})
-    data.sort_values('时间', ascending=True, inplace=True)
-    for ci in city_list:
-        city_data = cities_data.loc[(cities_data['城市'] == ci), ['时间', '聚类标签']]
-        city_data.rename(columns={'聚类标签': ci}, inplace=True)
-        data = pd.merge(data, city_data, on='时间', how='left')
+    city_list = data_new.loc[data_new['省份'] == '湖北', ['时间','城市','聚类标签']]
+    city_list = city_list.groupby(['时间', '城市']).聚类标签.max().reset_index()
+    data = city_list.pivot(index='时间', values='聚类标签', columns='城市')
     data.fillna(value=0, inplace=True, axis=1)
     trace = go.Heatmap(
-        z=data.drop(['时间'], axis=1, inplace=False).T,
-        x=data['时间'],
-        y=data.columns[1:],
+        z=data.T,
+        x=data.index,
+        y=data.columns,
         colorscale='Reds'
     )
     data1 = [trace]
@@ -165,28 +151,21 @@ def hubei_Heatmap(data_new):
     fig = dict(data=data1, layout=layout)
     pyplt(fig, filename='tmp/湖北新增人数聚类分级热力图.html')
 
-
 def mix_3d(data_new):
     '''
     :param data_new: 处理好的数据
     :return: 绘出湖北各城市的3d效果图
     '''
-    data_new.sort_values('新增确诊', ascending=True, inplace=True)
-    city_list = data_new.loc[data_new['省份'] == '湖北', ['城市']]
-    city_list = city_list['城市'].unique()
-    cities_data = data_new.groupby(['时间', '城市']).新增确诊.max().reset_index()
-    # print(cities_data)
-    data = pd.DataFrame({'时间': data_new['时间'].unique()})
-    data.sort_values('时间', ascending=True, inplace=True)
-    for ci in city_list:
-        city_data = cities_data.loc[(cities_data['城市'] == ci), ['时间', '新增确诊']]
-        city_data.rename(columns={'新增确诊': ci}, inplace=True)
-        data = pd.merge(data, city_data, on='时间', how='left')
+    #data_new.sort_values('新增确诊', ascending=True, inplace=True)
+    city_list = data_new.loc[data_new['省份'] == '湖北', ['时间', '城市', '新增确诊']]
+    city_list = city_list.groupby(['时间', '城市']).新增确诊.max().reset_index()
+    city_list.sort_values('新增确诊', ascending=True, inplace=True)
+    data = city_list.pivot(index='时间', values='新增确诊', columns='城市')
     data.fillna(value=0, inplace=True, axis=1)
     marker = [[0,'white'],[5/12000,'#FDF5E6'],[25/12000,'#FF4500'],
               [125/12000,'#FF3030'],[625/12000,'#FF0000'],[1,'#8B0000']]
     #marker = ([[0, 'green'], [0.5, 'red'], [1.0, 'rgb(0, 0, 255)']])
-    threed = Surface(z=data.values.tolist(),y = data['时间'],
+    threed = Surface(z=data.values.tolist(),y = data.index,
                      x = data.columns, colorscale=marker, showscale=False,
                      name = '湖北连续新增确诊人数三维展示')
 
@@ -281,6 +260,14 @@ def mix_3d(data_new):
     pyplt(fig, filename="tmp/3d-疫情数据可视化.html")
 
 def logistic_increase_function1(t,K,P0,r):
+    '''
+    使用逻辑增长法计算新增确诊数据
+    :param t:
+    :param K:
+    :param P0:
+    :param r:
+    :return:
+    '''
     t0=0
     # r = r
     # t:time   t0:initial time    P0:initial_value    K:capacity  r:increase_rate
@@ -288,6 +275,14 @@ def logistic_increase_function1(t,K,P0,r):
     return (K*exp_value*P0)/(K+(exp_value-1)*P0)
 
 def logistic_increase_function2(t,K,P0,r):
+    '''
+    使用逻辑增长法计算新增治愈数据
+    :param t:标准化时间序列
+    :param K:
+    :param P0:
+    :param r:参数
+    :return: 逻辑增长函数计算出的数据
+    '''
     t0=0
     r = 0.148
     # t:time   t0:initial time    P0:initial_value    K:capacity  r:increase_rate
@@ -295,6 +290,14 @@ def logistic_increase_function2(t,K,P0,r):
     return (K*exp_value*P0)/(K+(exp_value-1)*P0)
 
 def curve( x_train, y_train,n,x,r):
+    '''
+    :param x_train:标准化日期
+    :param y_train:训练目标数据
+    :param n:预测未来天数
+    :param x:日期列表
+    :param r:逻辑增长函数参数
+    :return:拟合数据，预测数据
+    '''
     if r == 0:
         logistic_increase_function = logistic_increase_function1
     else:
@@ -312,6 +315,11 @@ def curve( x_train, y_train,n,x,r):
     return y_predict,y_test
 
 def future_grouth(data):
+    '''
+    对疫情数据进行预测并可视化
+    :param data: 处理好的数据
+    :return:预测数据,变化趋势可视化展现
+    '''
     chinaarea = '''
         '重庆' '新疆' '山西' '河南' '黑龙江' '台湾' '海南' '陕西'  '吉林' '江苏' '福建' '宁夏' '江西' '辽宁' '河北' '香港' '安徽' '广西' '山东' '湖北' '四川' '浙江' '湖南'  '北京'  '贵州' '广东' '天津' '上海' '云南' '甘肃' '内蒙古'  '澳门' '青海' '西藏' 
      '''
@@ -422,4 +430,3 @@ def main():
             break
 
 main()
-
