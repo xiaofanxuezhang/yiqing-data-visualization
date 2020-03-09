@@ -74,7 +74,8 @@ def data_processing(path):
     :return:对数据进行补齐，去空，时间转化为序列，增加聚类标签（以log5 分级）
     '''
     data = pd.read_csv(path + '/Novel-Coronavirus-Updates-master/Updates_NC.csv', encoding='utf-8')
-    city_update = data[['省份', '城市']].fillna(method='ffill', axis=1)
+    data['城市'] = data['城市'].apply(lambda x: None if x in ['区'] else x)
+    city_update = data[['地区', '城市']].fillna(method='ffill', axis=1)
     data['城市'] = city_update['城市']
     data.fillna(value=0.0, axis=1, inplace=True)
     index_name = data.loc[(data['城市'].isin(['地市明细不详','钻石公主号',0]))]  # == '地市明细不详')|(data['城市'] == 0)]
@@ -104,10 +105,10 @@ def get_data(url,path):
 def prvoience_Heatmap(data):
     '''
     :param data: 处理后的数据
-    :return: 以省份为单位绘出热力图
+    :return: 以地区为单位绘出热力图
     '''
-    provience_data = data.groupby(['时间', '省份']).聚类标签.max().reset_index()
-    pros_data = provience_data.pivot(index = '时间',values = '聚类标签',columns = '省份')
+    provience_data = data.groupby(['时间', '地区']).聚类标签.max().reset_index()
+    pros_data = provience_data.pivot(index = '时间',values = '聚类标签',columns = '地区')
     pros_data.fillna(value=0, inplace=True, axis=1)
     trace = go.Heatmap(
         z=pros_data.values.tolist(),
@@ -131,7 +132,7 @@ def hubei_Heatmap(data_new):
     :return: 绘出湖北各个城市的热力图
     '''
     data_new.sort_values('聚类标签', ascending=True, inplace=True)
-    city_list = data_new.loc[data_new['省份'] == '湖北', ['时间','城市','聚类标签']]
+    city_list = data_new.loc[data_new['地区'] == '湖北', ['时间','城市','聚类标签']]
     city_list = city_list.groupby(['时间', '城市']).聚类标签.max().reset_index()
     data = city_list.pivot(index='时间', values='聚类标签', columns='城市')
     data.fillna(value=0, inplace=True, axis=1)
@@ -157,7 +158,7 @@ def mix_3d(data_new):
     :return: 绘出湖北各城市的3d效果图
     '''
     #data_new.sort_values('新增确诊', ascending=True, inplace=True)
-    city_list = data_new.loc[data_new['省份'] == '湖北', ['时间', '城市', '新增确诊']]
+    city_list = data_new.loc[data_new['地区'] == '湖北', ['时间', '城市', '新增确诊']]
     city_list = city_list.groupby(['时间', '城市']).新增确诊.max().reset_index()
     city_list.sort_values('新增确诊', ascending=True, inplace=True)
     data = city_list.pivot(index='时间', values='新增确诊', columns='城市')
@@ -259,7 +260,7 @@ def mix_3d(data_new):
     fig = go.Figure(data=data1, layout=layout)
     pyplt(fig, filename="tmp/3d-疫情数据可视化.html")
 
-def logistic_increase_function1(t,K,P0,r):
+def logistic_increase_function(t,K,P0,r):
     '''
     使用逻辑增长法计算新增确诊数据
     :param t:
@@ -274,77 +275,44 @@ def logistic_increase_function1(t,K,P0,r):
     exp_value=np.exp(r*(t-t0))
     return (K*exp_value*P0)/(K+(exp_value-1)*P0)
 
-def logistic_increase_function2(t,K,P0,r):
-    '''
-    使用逻辑增长法计算新增治愈数据
-    :param t:标准化时间序列
-    :param K:
-    :param P0:
-    :param r:参数
-    :return: 逻辑增长函数计算出的数据
-    '''
-    t0=0
-    r = 0.148
-    # t:time   t0:initial time    P0:initial_value    K:capacity  r:increase_rate
-    exp_value=np.exp(r*(t-t0))
-    return (K*exp_value*P0)/(K+(exp_value-1)*P0)
-
-def curve( x_train, y_train,n,x,r):
-    '''
-    :param x_train:标准化日期
-    :param y_train:训练目标数据
-    :param n:预测未来天数
-    :param x:日期列表
-    :param r:逻辑增长函数参数
-    :return:拟合数据，预测数据
-    '''
-    if r == 0:
-        logistic_increase_function = logistic_increase_function1
-    else:
-        logistic_increase_function = logistic_increase_function2
-    popt, pcov = curve_fit(logistic_increase_function, x_train, y_train)
-    # print("K:capacity  P0:initial_value   r:increase_rate   t:time")
-    # print(popt)
-    # 拟合后预测的P值
-    y_predict = logistic_increase_function(x_train, popt[0], popt[1],popt[2])
-    y_predict = y_predict.astype(int)
-    # 未来预测
-    x_test = np.array([x for x in range(len(x), len(x) + n)])
-    y_test = logistic_increase_function(x_test, popt[0], popt[1],popt[2])
-    y_test = y_test.astype(int)
-    return y_predict,y_test
+def timetransform(x):
+    date1 = datetime.strptime(x[0],'%Y-%m-%d')
+    list = []
+    for i in x:
+        date2 = datetime.strptime(i, '%Y-%m-%d')
+        num = (date2-date1).days
+        list.append(num)
+    return list
 
 def future_grouth(data):
     '''
-    对疫情数据进行预测并可视化
-    :param data: 处理好的数据
-    :return:预测数据,变化趋势可视化展现
+    :param data: 疫情数据
+    :return: 预测数据，变化趋势可视化图表
     '''
     chinaarea = '''
-        '重庆' '新疆' '山西' '河南' '黑龙江' '台湾' '海南' '陕西'  '吉林' '江苏' '福建' '宁夏' '江西' '辽宁' '河北' '香港' '安徽' '广西' '山东' '湖北' '四川' '浙江' '湖南'  '北京'  '贵州' '广东' '天津' '上海' '云南' '甘肃' '内蒙古'  '澳门' '青海' '西藏' 
-     '''
+            '重庆' '新疆' '山西' '河南' '黑龙江' '台湾' '海南' '陕西'  '吉林' '江苏' '福建' '宁夏' '江西' '辽宁' '河北' '香港' '安徽' '广西' '山东' '湖北' '四川' '浙江' '湖南'  '北京'  '贵州' '广东' '天津' '上海' '云南' '甘肃' '内蒙古'  '澳门' '青海' '西藏' 
+         '''
     areaname = chinaarea.replace('\'', '').split(' ')
-    data = data.loc[data['省份'].isin(areaname)]  # 只保留国内
+    data = data.loc[data['地区'].isin(areaname)]  # 只保留国内
     date_list = list(data['时间'].unique())
     x = []
     y = []
-    z = []
     while bool(date_list):
         x.append(date_list.pop())
         y.append(data.loc[data['时间'].isin(x)]['新增确诊'].sum())
-        z.append(data.loc[data['时间'].isin(x)]['新增出院'].sum())
-    x_train = np.array([x for x in range(len(x))])
+    x_train = np.array(timetransform(x))
     y_train = np.array(y)
-    z_train = np.array(z)
     n = 25
-    num_y = 0
-    num_z = 0
-    while num_z <= num_y:
-        y_predict, y_test = curve(x_train, y_train, n, x, 0)
-        z_predict, z_test = curve(x_train, z_train, n, x, 1)
-        num_y = y_test[-1]
-        num_z = z_test[-1]
-        n += 1
+    popt, pcov = curve_fit(logistic_increase_function, x_train, y_train)  # ,bounds=(0, [80, 24., 0.2]))
+    # print("K:capacity  P0:initial_value   r:increase_rate   t:time")
+    # print(popt)
+    # 拟合后预测的P值
+    y_predict = logistic_increase_function(x_train, popt[0], popt[1], popt[2])
+    y_predict = y_predict.astype(int)
+    # 未来预测
+    x_test = np.array([x for x in range(x_train[-1] + 1, x_train[-1] + n + 1)])
+    y_test = logistic_increase_function(x_test, popt[0], popt[1], popt[2])
+    y_test = y_test.astype(int)
 
     trace1 = go.Scatter(
         x=x,
@@ -363,41 +331,20 @@ def future_grouth(data):
         y=y1,
         name='预测确诊'
     )
-    trace4 = go.Scatter(
-        x=x,
-        y=z,
-        name='出院总数'
-    )
-    trace5 = go.Scatter(
-        x=x,
-        y=z_predict,
-        name='拟合出院'
-    )
-    z1 = np.append(z_predict[-1], z_test)
-    trace6 = go.Scatter(
-        x=x1,
-        y=z1,
-        name='预测出院'
-    )
-    data3 = [trace1, trace2, trace3,trace4, trace5, trace6]
+
+    data3 = [trace1, trace2, trace3]
     layout1 = dict(title='疫情趋势预测',
                    yaxis=dict(zeroline=True),
                    xaxis=dict(zeroline=False))
     fig1 = dict(data=data3, layout=layout1)
 
     futuere_y = y1[1:] - y1[:-1]
-    futuere_z = z1[1:] - z1[:-1]
-    trace7 = go.Bar(
+    trace4 = go.Bar(
         x=x1[1:],
         y=futuere_y,
-        name = '新增确诊'
+        name='新增确诊'
     )
-    trace8 = go.Bar(
-        x=x1[1:],
-        y=futuere_z,
-        name = '新增出院'
-    )
-    data4 = [trace7,trace8]
+    data4 = [trace4]
     fig2 = go.Figure(data=data4)
     pyplt(fig2, filename='tmp/预测数据.html')
     pyplt(fig1, filename='tmp/变化趋势.html')
@@ -412,7 +359,7 @@ def main():
     data_new = pd.read_csv(path + '\聚类后疫情数据.csv', encoding='gbk')
     while True:
         print('''
-        输入：\n1:省级新增人数聚类分级热力图
+        \n1:省级新增人数聚类分级热力图
         \n2：湖北新增人数聚类分级热力图
         \n3:3d混合展示
         \n4:新增确诊预测
